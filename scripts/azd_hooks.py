@@ -107,17 +107,30 @@ def postprovision() -> None:
 
 
 def postdown() -> None:
+    import json
+
     app_id = env("ENTRA_APP_ID")
     if not app_id:
         return
-    az = shutil.which("az") or "az"
-    r = subprocess.run([az, "ad", "app", "delete", "--id", app_id], capture_output=True, text=True)
-    if r.returncode == 0:
+    # azd's own credential, so this works without a separate `az login`.
+    out = subprocess.run(
+        [shutil.which("azd") or "azd", "auth", "token", "--scope", "https://graph.microsoft.com/.default", "--output", "json"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    token = json.loads(out)["token"]
+    r = httpx.delete(
+        f"https://graph.microsoft.com/v1.0/applications(appId='{app_id}')",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    if r.status_code in (204, 404):
         print(f"deleted Entra app registration {app_id}")
         azd_env_set("ENTRA_APP_ID", "")
     else:
-        print(f"could not delete Entra app registration {app_id}: {r.stderr.strip()[:300]}")
-        print(f"  delete it by hand: az ad app delete --id {app_id}")
+        sys.exit(
+            f"could not delete Entra app registration {app_id}: HTTP {r.status_code} {r.text[:300]}\n"
+            f"  delete it by hand: Entra admin center > App registrations > {app_id}"
+        )
 
 
 if __name__ == "__main__":
