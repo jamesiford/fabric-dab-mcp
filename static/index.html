@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fabric Lakehouse over MCP</title>
+<style>
+  :root {
+    --ink: #16161a; --muted: #6b6b76; --line: #e3e3e8; --bg: #fafafa;
+    --mcp: #0f7b6c; --mcp-bg: #f0f8f6;
+    --agent: #8b2f5f; --agent-bg: #fbf1f6;
+    --fail: #b3261e; --fail-bg: #fdecea; --fail-line: #f5c6c2;
+    --ok: #0f7b6c; --run: #b5651d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 26px 50px; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 21px; margin: 0 0 3px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .ask { display: flex; gap: 10px; margin-bottom: 11px; align-items: center; }
+  .cmp {
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-size: 13px; color: var(--muted); cursor: pointer; user-select: none;
+  }
+  .cmp input { cursor: pointer; }
+  .lane-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); margin: 22px 0 -8px; font-weight: 600;
+  }
+  .lane-label.agent { color: #8b2f5f; }
+  input[type=text] {
+    flex: 1; padding: 11px 14px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 15px; background: #fff;
+  }
+  input[type=text]:focus { outline: 2px solid #c9c9d2; outline-offset: -1px; }
+  button {
+    padding: 11px 22px; border: 0; border-radius: 8px; background: var(--ink);
+    color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  .preset-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); margin: 14px 0 7px;
+  }
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; }
+  .presets button {
+    background: #fff; color: var(--muted); border: 1px solid var(--line);
+    font-size: 12.5px; font-weight: 500; padding: 6px 11px; border-radius: 15px;
+  }
+  .presets button:hover:not(:disabled) { color: var(--ink); border-color: #c4c4cc; }
+  .presets button .n {
+    color: #a0a0ab; font-size: 11px; margin-left: 5px; font-variant-numeric: tabular-nums;
+  }
+  .presets.danger button {
+    background: var(--fail-bg); color: var(--fail); border-color: var(--fail-line);
+  }
+  .presets.danger button:hover:not(:disabled) { border-color: #e79c95; }
+
+  /* .lane-body sets display:grid, which outranks the UA [hidden] rule. */
+  [hidden] { display: none !important; }
+
+  /* One lane: answer beside its trace. Comparing: lane beside lane, and each
+     lane stacks its own trace under its answer, folded. */
+  .lanes { display: grid; grid-template-columns: 1fr; }
+  .lanes.compare { grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .lane-body { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; margin-top: 20px; align-items: start; }
+  .lanes.compare .lane-body { grid-template-columns: 1fr; gap: 13px; }
+  /* Folded traces ride above the answers so both status lines stay aligned;
+     otherwise a tall result table pushes one lane's trace off the bottom. */
+  .lanes.compare .card.trace { order: -1; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .card > header, .card.trace summary.head {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    background: var(--mcp-bg);
+  }
+  .card h2 { font-size: 14px; margin: 0; font-weight: 650; color: var(--mcp); }
+  #agentlane .card > header, #agentlane .card.trace summary.head { background: var(--agent-bg); }
+  #agentlane .card h2 { color: var(--agent); }
+  .card .path { font-size: 11.5px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+  .timer { font-variant-numeric: tabular-nums; font-size: 23px; font-weight: 700; color: var(--mcp); letter-spacing: -0.02em; }
+  .card .body { padding: 14px 16px; }
+
+  .card.trace summary.head { cursor: pointer; user-select: none; list-style: none; }
+  .card.trace summary.head::-webkit-details-marker { display: none; }
+  .card.trace summary.head > div:first-child { min-width: 0; }
+  .card.trace > details:not([open]) > summary.head { border-bottom: 0; }
+  .card.trace summary.head:hover .chev { color: var(--ink); }
+  .lanes.compare .card.trace summary.head .path { display: none; }
+  .status {
+    display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums; flex: 1 1 auto; justify-content: flex-end; min-width: 0;
+  }
+  .status .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status .ms { color: #a0a0ab; font-size: 11px; flex: none; }
+  .chev { color: #b4b4bd; font-size: 10px; flex: none; }
+  .card.trace > details[open] .chev::before { content: '\25BE'; }
+  .card.trace > details:not([open]) .chev::before { content: '\25B8'; }
+
+  @media (max-width: 1180px) {
+    .lanes.compare { grid-template-columns: 1fr; }
+    .lane-body { grid-template-columns: 1fr; }
+  }
+
+  #answer { white-space: pre-wrap; min-height: 54px; font-size: 14.5px; }
+  #answer.blocked { color: var(--fail); font-weight: 600; }
+  .caret {
+    display: inline-block; width: 7px; height: 15px; background: var(--mcp);
+    vertical-align: -2px; animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    font-size: 11.5px; padding: 3px 9px; border-radius: 11px; background: #f2f2f5;
+    color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .chip b { color: var(--ink); font-weight: 650; }
+  .chip.warn { background: #fff5e6; color: #8a5a10; }
+
+  .rows-wrap { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid #f0f0f3; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: #fff; box-shadow: 0 1px 0 var(--line); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 5px; }
+  pre {
+    background: #f7f7f9; border: 1px solid var(--line); border-radius: 7px;
+    padding: 9px 11px; font-size: 11.5px; line-height: 1.45; overflow-x: auto;
+    margin: 0; white-space: pre-wrap; word-break: break-word;
+  }
+
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .step { border-bottom: 1px solid #f2f2f5; padding: 9px 0; }
+  .step:last-child { border-bottom: 0; }
+  .step-head { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #d8d8de; flex: none; }
+  .step.run .dot { background: var(--run); animation: pulse .8s ease-in-out infinite; }
+  .step.ok .dot { background: var(--ok); }
+  .step.fail .dot { background: var(--fail); }
+  .step.skip .dot { background: #c9c9d2; }
+  .status .dot.run { background: var(--run); animation: pulse .8s ease-in-out infinite; }
+  .status .dot.ok { background: var(--ok); }
+  .status .dot.fail { background: var(--fail); }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+  .step-name { font-size: 13px; font-weight: 600; }
+  .step.idle .step-name { color: #b4b4bd; font-weight: 500; }
+  .step-ms { margin-left: auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step-detail { margin: 6px 0 0 16px; font-size: 12px; color: var(--muted); }
+  .step-detail pre { margin-top: 5px; font-size: 11px; }
+
+  .checks { margin: 6px 0 0 16px; font-size: 11.5px; }
+  .check { display: flex; gap: 7px; align-items: baseline; padding: 1px 0; font-variant-numeric: tabular-nums; }
+  .check .mark { font-weight: 700; width: 11px; flex: none; }
+  .check.pass .mark { color: var(--ok); }
+  .check.block .mark { color: var(--fail); }
+  .check code { background: #f2f2f5; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .check.block code { background: var(--fail-bg); color: var(--fail); }
+  .check .vs { color: #a0a0ab; }
+
+  .blocked-box {
+    margin-top: 12px; padding: 11px 13px; background: var(--fail-bg);
+    border: 1px solid var(--fail-line); border-radius: 8px; color: var(--fail);
+    font-size: 12.5px;
+  }
+  .blocked-box b { display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+
+  details.raw { margin-top: 16px; }
+  details.raw > summary {
+    cursor: pointer; font-size: 11.5px; color: var(--muted); padding: 7px 0;
+    user-select: none;
+  }
+  details.raw > summary:hover { color: var(--ink); }
+  #rawlog {
+    background: #16161a; color: #c8c8d0; border-radius: 7px; padding: 10px 12px;
+    font: 11px/1.5 "Cascadia Mono", Consolas, monospace; max-height: 260px;
+    overflow: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  #rawlog .k { color: #7fd6c5; }
+  #rawlog .n { color: #b4b4bd; }
+
+  .foot { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 900px; }
+</style>
+</head>
+<body>
+
+<h1>Fabric Lakehouse over MCP</h1>
+<div class="sub">
+  <code>lh_deposits</code> &middot; 8,123 accounts &middot; 2,000 customers &middot; 9 branches &middot; snapshot 2026-08-02
+</div>
+
+<div class="ask">
+  <input type="text" id="q" placeholder="Ask a question about the deposit book&hellip;" />
+  <button id="go">Ask</button>
+  <label class="cmp" title="Run the same question down both paths at once">
+    <input type="checkbox" id="cmp" /> compare with data agent
+  </label>
+</div>
+
+<div id="rlswarn"></div>
+
+<div class="preset-label">Complete result sets &mdash; each returns every row, nothing truncated</div>
+<div class="presets" id="presets"></div>
+
+<div class="preset-label">Try to break it &mdash; model bypassed, arguments sent straight to the tool</div>
+<div class="presets danger" id="guardrails"></div>
+
+<div class="lanes" id="lanes">
+  <section class="lane">
+    <div class="lane-label" id="mcp-label">Data API Builder &mdash; MCP over curated views</div>
+    <div class="lane-body">
+      <section class="card">
+        <header>
+          <div>
+            <h2>Answer</h2>
+            <div class="path">question &rarr; pick a DAB tool + arguments &rarr; DAB builds and runs the SQL &rarr; phrase</div>
+          </div>
+          <div class="timer" id="timer">&mdash;</div>
+        </header>
+        <div class="body">
+          <div class="chips" id="chips"></div>
+          <div id="answer"><span style="color:#b4b4bd">idle</span></div>
+          <div id="rows"></div>
+        </div>
+      </section>
+
+      <section class="card trace">
+        <details id="fold" open>
+          <summary class="head">
+            <div>
+              <h2>Trace</h2>
+              <div class="path">every stage, streamed as it happens</div>
+            </div>
+            <div class="status" id="status"><span class="name">idle</span><span class="chev"></span></div>
+          </summary>
+          <div class="body">
+            <ul class="steps" id="steps"></ul>
+            <div id="blocked"></div>
+            <details class="raw">
+              <summary>Raw event log</summary>
+              <div id="rawlog"></div>
+            </details>
+          </div>
+        </details>
+      </section>
+    </div>
+  </section>
+
+  <section class="lane" id="agentlane" hidden>
+    <div class="lane-label agent" id="agent-label">Fabric data agent &mdash; same question, same Lakehouse</div>
+    <div class="lane-body">
+      <section class="card">
+        <header>
+          <div>
+            <h2>Answer</h2>
+            <div class="path">question &rarr; Fabric plans, generates and executes internally</div>
+          </div>
+          <div class="timer" id="a-timer">&mdash;</div>
+        </header>
+        <div class="body">
+          <div class="chips" id="a-chips"></div>
+          <div id="a-answer"><span style="color:#b4b4bd">idle</span></div>
+          <div id="a-rows"></div>
+        </div>
+      </section>
+
+      <section class="card trace">
+        <details id="a-fold" open>
+          <summary class="head">
+            <div>
+              <h2>Trace</h2>
+              <div class="path">the agent is a black box &mdash; only the protocol is visible</div>
+            </div>
+            <div class="status" id="a-status"><span class="name">idle</span><span class="chev"></span></div>
+          </summary>
+          <div class="body">
+            <ul class="steps" id="a-steps"></ul>
+            <div id="a-blocked"></div>
+            <details class="raw">
+              <summary>Raw event log</summary>
+              <div id="a-rawlog"></div>
+            </details>
+          </div>
+        </details>
+      </section>
+    </div>
+  </section>
+</div>
+
+<div class="foot">
+  Both lanes are stock products over the same Lakehouse. On the left, Microsoft Data API Builder
+  publishes three curated views as MCP tools; the model reads the question and writes the answer but
+  never writes the query &mdash; it picks a tool and fills in arguments, and DAB turns those arguments
+  into SQL. Base tables are not published, so they cannot be reached, and the tools are read-only:
+  there is no write surface to disable. DAB does not return its generated SQL, so the last trace step
+  reads the statement back out of Fabric's own query history &mdash; what actually ran, not what we
+  claim ran.
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let running = false;
+
+// Lane prefixes. The MCP lane keeps the original unprefixed ids so nothing
+// about that path changes; the data agent lane mirrors them under 'a-'.
+const MCP = '';
+const AGENT = 'a-';
+
+const STEPS = [
+  ['catalog',  'Published surface'],
+  ['route',    'Model picks a tool'],
+  ['execute',  'DAB builds SQL and runs it'],
+  ['phrase',   'Phrase the answer'],
+  ['sql',      'The SQL DAB actually ran']
+];
+
+// The data agent exposes no internal stages - planning, generation and
+// execution all happen inside Fabric. Only the MCP protocol is observable,
+// so those are the only steps we claim to see.
+const AGENT_STEPS = [
+  ['connect',  'MCP handshake'],
+  ['discover', 'Discover the tool'],
+  ['agent',    'Fabric plans, generates, executes']
+];
+
+function stepsFor(p) { return p === AGENT ? AGENT_STEPS : STEPS; }
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+// Light markdown for the answer only. Applied AFTER esc(), so the input is
+// already HTML-neutral and these substitutions cannot introduce markup.
+function mdLite(escaped) {
+  return escaped
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|\n)- /g, '$1\u2022 ');
+}
+
+function resetSteps(p) {
+  p = p || '';
+  $(p + 'steps').innerHTML = stepsFor(p).map(([id, name]) =>
+    '<li class="step idle" id="' + p + 'st-' + id + '">' +
+      '<div class="step-head"><span class="dot"></span>' +
+      '<span class="step-name">' + esc(name) + '</span>' +
+      '<span class="step-ms" id="' + p + 'ms-' + id + '"></span></div>' +
+      '<div id="' + p + 'sd-' + id + '"></div>' +
+    '</li>'
+  ).join('');
+}
+
+function setStep(p, id, state, ms) {
+  const el = $(p + 'st-' + id);
+  if (!el) return;
+  el.className = 'step ' + state;
+  if (ms !== undefined && ms !== null) $(p + 'ms-' + id).textContent = ms + 'ms';
+  // 'skip' is set in bulk when a call is blocked; the blocked handler owns the
+  // status line at that point.
+  if (state === 'skip') return;
+  const entry = stepsFor(p).find(s => s[0] === id);
+  if (entry) setStatus(p, state, entry[1], ms);
+}
+
+/** The one line visible when the trace is folded shut. */
+function setStatus(p, state, name, ms) {
+  $(p + 'status').innerHTML =
+    (state ? '<span class="dot ' + state + '"></span>' : '') +
+    '<span class="name">' + esc(name) + '</span>' +
+    (ms !== undefined && ms !== null ? '<span class="ms">' + ms + 'ms</span>' : '') +
+    '<span class="chev"></span>';
+}
+
+function stepDetail(p, id, html) {
+  const el = $(p + 'sd-' + id);
+  if (el) el.innerHTML = html;
+}
+
+function fmt(s) { return s < 10 ? s.toFixed(2) + 's' : s.toFixed(1) + 's'; }
+
+function startTimer(p) {
+  const t0 = performance.now();
+  $(p + 'timer').textContent = '0.00s';
+  return setInterval(() => { $(p + 'timer').textContent = fmt((performance.now() - t0) / 1000); }, 50);
+}
+
+function logRaw(p, ev) {
+  const box = $(p + 'rawlog');
+  const compact = JSON.stringify(ev, (k, v) =>
+    (k === 'rows' && Array.isArray(v)) ? '[' + v.length + ' rows]' : v);
+  box.innerHTML += '<span class="n">' + new Date().toISOString().slice(11, 23) + '</span>  ' +
+                   esc(compact) + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+// The tool returns every row; the DOM does not. Painting 8,123 x 20 cells in one
+// innerHTML assignment freezes the tab, so the table shows a window and says so.
+const DOM_ROW_CAP = 1000;
+
+function renderRows(p, rows) {
+  if (!rows || !rows.length) { $(p + 'rows').innerHTML = ''; return; }
+  const cols = Object.keys(rows[0]);
+  const shown = rows.slice(0, DOM_ROW_CAP);
+  const head = cols.map(c => '<th>' + esc(c) + '</th>').join('');
+  const body = shown.map(r =>
+    '<tr>' + cols.map(c => {
+      const v = r[c];
+      const num = typeof v === 'number';
+      const txt = num ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : esc(v);
+      return '<td class="' + (num ? 'num' : '') + '">' + txt + '</td>';
+    }).join('') + '</tr>').join('');
+  const label = shown.length < rows.length
+    ? rows.length.toLocaleString() + ' rows returned &mdash; first ' +
+      DOM_ROW_CAP.toLocaleString() + ' rendered below'
+    : rows.length.toLocaleString() + ' rows returned &mdash; complete result set';
+  $(p + 'rows').innerHTML =
+    '<div class="label">' + label + '</div>' +
+    '<div class="rows-wrap"><table><thead><tr>' + head + '</tr></thead><tbody>' +
+    body + '</tbody></table></div>';
+}
+
+function renderChecks(checks) {
+  if (!checks || !checks.length) return '<div class="step-detail">nothing to check</div>';
+  return '<div class="checks">' + checks.map(c =>
+    '<div class="check ' + (c.ok ? 'pass' : 'block') + '">' +
+      '<span class="mark">' + (c.ok ? '\u2713' : '\u2715') + '</span>' +
+      '<code>' + esc(c.identifier) + '</code>' +
+      '<span class="vs">vs ' + esc(c.checked_against) + '</span>' +
+    '</div>').join('') + '</div>';
+}
+
+// DAB does not hand back the SQL it generated, so the real statement is read
+// from Fabric's query history instead. That lags by a minute or two, which is
+// why this runs after the lane has finished rather than inside the stream.
+function fetchActualSql(p, ev) {
+  setStep(p, 'sql', 'run');
+  stepDetail(p, 'sql',
+    '<div class="step-detail">waiting for Fabric to publish the statement to ' +
+    '<code>queryinsights.exec_requests_history</code>&hellip;</div>');
+  fetch('/api/sql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity: ev.entity, since_utc: ev.since_utc })
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'found') {
+      setStep(p, 'sql', 'ok');
+      stepDetail(p, 'sql',
+        '<div class="step-detail">read back from <code>' + esc(d.source) + '</code>' +
+        ' &mdash; this is the statement Fabric executed, not one we assembled' +
+        '<pre>' + esc(d.sql) + '</pre></div>');
+    } else {
+      setStep(p, 'sql', 'skip');
+      stepDetail(p, 'sql',
+        '<div class="step-detail">' + esc(d.detail || d.status) + '</div>');
+    }
+  }).catch(e => {
+    setStep(p, 'sql', 'fail');
+    stepDetail(p, 'sql', '<div class="step-detail">' + esc(e) + '</div>');
+  });
+}
+
+function setBusy(on) {
+  running = on;
+  $('go').disabled = on;
+  document.querySelectorAll('.presets button').forEach(b => b.disabled = on);
+}
+
+function resetLane(p) {
+  resetSteps(p);
+  setStatus(p, '', 'idle');
+  $(p + 'rawlog').innerHTML = '';
+  $(p + 'rows').innerHTML = '';
+  $(p + 'chips').innerHTML = '';
+  $(p + 'blocked').innerHTML = '';
+  $(p + 'answer').className = '';
+  $(p + 'answer').innerHTML = '<span class="caret"></span>';
+}
+
+/** Stream one lane. Does no busy-state management so two lanes can race. */
+async function streamLane(p, url, payload) {
+  resetLane(p);
+  const tick = startTimer(p);
+  let answer = '';
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.replace(/^data: /, '').trim();
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line); } catch { continue; }
+        logRaw(p, ev);
+        handle(p, ev, txt => {
+          answer += txt;
+          $(p + 'answer').innerHTML = mdLite(esc(answer)) + '<span class="caret"></span>';
+        });
+      }
+    }
+  } catch (e) {
+    $(p + 'answer').innerHTML = '<span style="color:#b3261e">transport error: ' + esc(e) + '</span>';
+  } finally {
+    clearInterval(tick);
+    if (answer) $(p + 'answer').innerHTML = mdLite(esc(answer));
+  }
+}
+
+/** One entry point for a question. Honours the compare toggle. */
+async function askQuestion(question) {
+  if (running) return;
+  const compare = $('cmp').checked;
+  setBusy(true);
+  showAgent(compare);
+  try {
+    if (compare) {
+      await Promise.all([
+        streamLane(MCP, '/api/stream', { question: question }),
+        streamLane(AGENT, '/api/stream/agent', { question: question })
+      ]);
+    } else {
+      await streamLane(MCP, '/api/stream', { question: question });
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+/** Guardrail calls bypass the model entirely and only apply to the MCP lane. */
+async function runGuardrail(payload) {
+  if (running) return;
+  setBusy(true);
+  showAgent(false);
+  try {
+    await streamLane(MCP, '/api/guardrail', payload);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function showAgent(on) {
+  $('lanes').classList.toggle('compare', on);
+  $('agentlane').hidden = !on;
+  $('mcp-label').style.display = on ? '' : 'none';
+  // Side by side, the traces fold away so both answers stay above the fold.
+  $('fold').open = !on;
+  $('a-fold').open = !on;
+}
+
+function handle(p, ev, appendToken) {
+  if (ev.t === 'step') {
+    setStep(p, ev.id, ev.state === 'run' ? 'run' : ev.state, ev.ms);
+
+    if (ev.id === 'connect' && ev.detail) {
+      stepDetail(p, 'connect',
+        '<div class="step-detail"><code>' + esc(ev.detail.server) + '</code>' +
+        ' &middot; protocol ' + esc(ev.detail.protocol) +
+        '<pre>' + esc(ev.detail.url) + '</pre></div>');
+    }
+    if (ev.id === 'discover' && ev.detail) {
+      stepDetail(p, 'discover',
+        '<div class="step-detail">' + ev.detail.tool_count + ' tool' +
+        (ev.detail.tool_count === 1 ? '' : 's') + ' advertised' +
+        '<br>argument <code>' + esc(ev.detail.argument) + '</code> discovered from schema' +
+        '<pre>' + esc(ev.tool) + '</pre></div>');
+    }
+    if (ev.id === 'agent' && ev.state === 'ok') {
+      stepDetail(p, 'agent',
+        '<div class="step-detail">Fabric generated and ran the query internally. ' +
+        'No SQL, no row count and no plan are exposed to the caller.</div>');
+    }
+
+    if (ev.id === 'catalog' && ev.detail) {
+      stepDetail(p, 'catalog',
+        '<div class="step-detail"><code>' + esc(ev.detail.source) + '</code>' +
+        ' &middot; protocol ' + esc(ev.detail.protocol) +
+        '<br>' + (ev.detail.entities || []).length + ' published entities &mdash; base tables are not reachable' +
+        '<pre>' + esc((ev.detail.tools || []).join('\n')) + '</pre>' +
+        '<pre>' + esc(ev.detail.url) + '</pre></div>');
+    }
+    if (ev.id === 'route' && ev.tool) {
+      const skipped = ev.state === 'skip';
+      stepDetail(p, 'route',
+        '<div class="step-detail">' +
+        (skipped ? '<b style="color:#b3261e">' + esc(ev.detail) + '</b>' : '') +
+        '<pre>' + esc(ev.tool) + '(' + esc(JSON.stringify(ev.args, null, 1)) + ')</pre></div>');
+    }
+    if (ev.id === 'execute' && ev.row_count !== undefined) {
+      let html = '<div class="step-detail">';
+      if (ev.connect_ms > 50) {
+        html += '<span class="chip">MCP handshake <b>' + ev.connect_ms + 'ms</b> (a fresh session per question)</span><br>';
+      }
+      html += ev.row_count.toLocaleString() + ' rows &middot; complete' +
+        (ev.entity ? ' &middot; entity <code>' + esc(ev.entity) + '</code>' : '') +
+        '</div>';
+      stepDetail(p, 'execute', html);
+    }
+    if (ev.id === 'execute' && ev.row_count !== undefined) {
+      stepDetail(p, 'execute',
+        '<div class="step-detail">' + ev.row_count.toLocaleString() + ' rows &middot; complete</div>');
+    }
+  }
+
+  else if (ev.t === 'rows') {
+    renderRows(p, ev.rows);
+    if (ev.note) {
+      $(p + 'chips').innerHTML += '<span class="chip warn">' + esc(ev.note) + '</span>';
+    }
+  }
+
+  else if (ev.t === 'sql_pending') {
+    fetchActualSql(p, ev);
+  }
+
+  else if (ev.t === 'token') {
+    appendToken(ev.text);
+  }
+
+  else if (ev.t === 'done') {
+    $(p + 'timer').textContent = fmt(ev.elapsed_s);
+    setStatus(p, 'ok', 'complete');
+    const tm = ev.timing || {};
+    if (tm.route_ms !== undefined) {
+      $(p + 'chips').innerHTML =
+        '<span class="chip">route <b>' + tm.route_ms + 'ms</b></span>' +
+        '<span class="chip">connect <b>' + tm.connect_ms + 'ms</b></span>' +
+        '<span class="chip">query <b>' + tm.query_ms + 'ms</b></span>' +
+        '<span class="chip">phrase <b>' + tm.phrase_ms + 'ms</b></span>' +
+        $(p + 'chips').innerHTML;
+    } else if (tm.agent_ms !== undefined) {
+      $(p + 'chips').innerHTML =
+        '<span class="chip">handshake <b>' + tm.connect_ms + 'ms</b></span>' +
+        '<span class="chip">discover <b>' + tm.discover_ms + 'ms</b></span>' +
+        '<span class="chip">agent <b>' + tm.agent_ms + 'ms</b></span>' +
+        $(p + 'chips').innerHTML;
+    }
+    if (ev.unexpected) {
+      $(p + 'blocked').innerHTML =
+        '<div class="blocked-box"><b>not blocked</b>' +
+        'This call was expected to be rejected by the allow-list but ran. Worth investigating.</div>';
+    }
+  }
+
+  else if (ev.t === 'blocked') {
+    $(p + 'timer').textContent = fmt(ev.elapsed_s);
+    ['phrase', 'sql'].forEach(s => setStep(p, s, 'skip'));
+    setStatus(p, 'fail', 'rejected by DAB');
+    $(p + 'answer').className = 'blocked';
+    $(p + 'answer').textContent = 'Rejected before any rows were returned.';
+    $(p + 'blocked').innerHTML =
+      '<div class="blocked-box"><b>' + esc(ev.error_type || 'rejected by data api builder') + '</b>' +
+      esc(ev.message) + '</div>';
+  }
+
+  else if (ev.t === 'error') {
+    setStep(p, ev.id, 'fail');
+    setStatus(p, 'fail', ev.message);
+    $(p + 'answer').className = 'blocked';
+    $(p + 'answer').textContent = ev.message;
+  }
+}
+
+fetch('/api/presets').then(r => r.json()).then(d => {
+  $('presets').innerHTML = '';
+  d.presets.forEach(p => {
+    const b = document.createElement('button');
+    b.innerHTML = esc(p.label) + '<span class="n">' + p.rows.toLocaleString() + '</span>';
+    b.title = p.question;
+    b.onclick = () => { $('q').value = p.question; askQuestion(p.question); };
+    $('presets').appendChild(b);
+  });
+
+  $('guardrails').innerHTML = '';
+  d.guardrails.forEach(g => {
+    const b = document.createElement('button');
+    b.textContent = g.label;
+    b.title = g.blurb;
+    b.onclick = () => {
+      $('q').value = g.tool + '(' + JSON.stringify(g.args) + ')';
+      runGuardrail({ tool: g.tool, args: g.args });
+    };
+    $('guardrails').appendChild(b);
+  });
+});
+
+function ask() {
+  const question = $('q').value.trim();
+  if (question) askQuestion(question);
+}
+
+// A data agent cannot set SESSION_CONTEXT, so the claim-driven RLS policy
+// filters it to zero rows. Warn up front rather than letting the agent lane
+// look broken when it is actually our own security policy working.
+fetch('/api/rls').then(r => r.json()).then(d => {
+  if (d && d.rls_blocking_agent) {
+    $('rlswarn').innerHTML =
+      '<div class="blocked-box" style="margin:0 0 18px">' +
+      '<b>row-level security is filtering this connection to zero rows</b>' +
+      esc(d.hint || '') + '</div>';
+  }
+}).catch(() => {});
+
+resetSteps(MCP);
+resetSteps(AGENT);
+$('go').onclick = ask;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+</script>
+</body>
+</html>

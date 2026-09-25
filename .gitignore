@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+
+# azd state, and per-profile DAB configs regenerated on every provision.
+.azure/
+infra/generated/
+
+# Agent research scratch space.
+.copilot-tracking/
+
+# Local-only notes.
+_private/

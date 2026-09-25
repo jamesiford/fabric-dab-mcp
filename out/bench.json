@@ -1,0 +1,52 @@
+[
+  {
+    "id": "q1",
+    "question": "What is the total deposit balance for each branch, counting USD accounts only?",
+    "agent_s": 22.825735200000054,
+    "agent_status": "completed",
+    "agent_answer": "The total USD-denominated deposit balances by branch, as of the 8/2/2026 snapshot (balances are as of the prior business day), are:\n\n- LA-001 \u2013 Los Angeles Main: 1,057,348,809.77 USD  \n- LA-002 \u2013 Monterey Park: 1,070,831,116.22 USD  \n- LA-003 \u2013 Pasadena: 898,747,821.45 USD  \n- LA-004 \u2013 Torrance: 964,970,438.44 USD  \n- MOD-001 \u2013 Modesto: 1,156,804,741.83 USD  \n- SF-001 \u2013 San Francisco Financial Dis",
+    "mcp_s": 0.4659324000022025,
+    "mcp_connect_s": 1.0739045000009355,
+    "mcp_rows": 7
+  },
+  {
+    "id": "q2",
+    "question": "What is the average interest rate for each deposit product?",
+    "agent_s": 26.79681800000253,
+    "agent_status": "completed",
+    "agent_answer": "The average interest rate by deposit product, based on balances as of 2026-08-02 (previous business day), is:\n\n- CD (Certificate of Deposit): 4.2172%\n- DDA (Demand Deposit Account / checking): 0.9425%\n- NOW (interest-bearing checking): 0.9267%\n- MMA (Money Market Account): 0.9291%\n- FX (Foreign Currency Deposit): 0.9485%\n\nNote: FX accounts are in various currencies; the rates are comparable as per",
+    "mcp_s": 0.2580302999995183,
+    "mcp_connect_s": 1.0557936000041082,
+    "mcp_rows": 5
+  },
+  {
+    "id": "q3",
+    "question": "Which branches have term deposits maturing in the next 90 days, and how much?",
+    "agent_s": 24.81750969999848,
+    "agent_status": "completed",
+    "agent_answer": "These branches have term deposits (CDs) maturing in the next 90 days, based on balances as of 8/2/2026 (previous business day snapshot):\n\n**USD balances**\n- SF-001 \u2013 San Francisco Financial District: 60,486,939.93 USD  \n- MOD-001 \u2013 Modesto: 69,078,881.86 USD  \n- LA-001 \u2013 Los Angeles Main: 70,037,993.86 USD  \n- LA-003 \u2013 Pasadena: 67,436,000.92 USD  \n- LA-004 \u2013 Torrance: 72,611,458.11 USD  \n- SF-002",
+    "mcp_s": 0.2133084000015515,
+    "mcp_connect_s": 1.0395473999960814,
+    "mcp_rows": 9
+  },
+  {
+    "id": "q4",
+    "question": "Show me the five largest certificate of deposit accounts by balance.",
+    "agent_s": 19.30800029999955,
+    "agent_status": "completed",
+    "agent_answer": "Here are the five largest certificate of deposit (CD) accounts by balance, based on the snapshot as of 8/2/2026 (balances are as of the prior business day, not \u201ccurrent\u201d in real time):\n\n1. Account 4407500 \u2013 Golden Gate Industries Partners LP (2)  \n   - Balance: 6,497,126.02 USD  \n\n2. Account 4406458 \u2013 Anchor Textiles Group LLC (2)  \n   - Balance: 6,491,934.38 USD  \n\n3. Account 4407097 \u2013 Evergreen ",
+    "mcp_s": 0.23014680000051158,
+    "mcp_connect_s": 1.1924435999972047,
+    "mcp_rows": 5
+  },
+  {
+    "id": "q5",
+    "question": "How many deposit accounts does each branch have?",
+    "agent_s": 20.420925599995826,
+    "agent_status": "completed",
+    "agent_answer": "Here are the total numbers of deposit accounts by branch (across all snapshot dates combined, not as-of a specific day):\n\n- LA-001 \u2014 Los Angeles Main: 856 accounts  \n- LA-002 \u2014 Monterey Park: 949 accounts  \n- LA-003 \u2014 Pasadena: 803 accounts  \n- LA-004 \u2014 Torrance: 862 accounts  \n- SF-001 \u2014 San Francisco Financial District: 886 accounts  \n- SF-002 \u2014 Millbrae: 952 accounts  \n- MOD-001 \u2014 Modesto: 977 ",
+    "mcp_s": 0.21786060000158614,
+    "mcp_connect_s": 1.015434600005392,
+    "mcp_rows": 9
+  }
+]

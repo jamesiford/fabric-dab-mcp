@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+name: fabric-mcp
+metadata:
+  template: fabric-dab-mcp
+
+# Infrastructure only. DAB runs as the stock Microsoft image; nothing is built or pushed.
+infra:
+  provider: bicep
+  path: infra
+
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: python scripts/azd_hooks.py preprovision
+      continueOnError: false
+    posix:
+      shell: sh
+      run: python3 scripts/azd_hooks.py preprovision
+      continueOnError: false
+  postprovision:
+    windows:
+      shell: pwsh
+      run: python scripts/azd_hooks.py postprovision
+      continueOnError: false
+    posix:
+      shell: sh
+      run: python3 scripts/azd_hooks.py postprovision
+      continueOnError: false
+  # The Entra app registration lives in the tenant, not the resource group, so
+  # deleting the resource group does not remove it.
+  postdown:
+    windows:
+      shell: pwsh
+      run: python scripts/azd_hooks.py postdown
+    posix:
+      shell: sh
+      run: python3 scripts/azd_hooks.py postdown
